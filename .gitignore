@@ -4,3 +4,4 @@ output/
 wandb/
 *.npz
 *.pkl
+motion_generator/OmniControl-main/dataset/HumanML3D/
