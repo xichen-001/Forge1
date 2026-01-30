@@ -1,0 +1,153 @@
+import numpy as np
+import pickle
+from os.path import join as pjoin
+
+POS_enumerator = {
+    'VERB': 0,
+    'NOUN': 1,
+    'DET': 2,
+    'ADP': 3,
+    'NUM': 4,
+    'AUX': 5,
+    'PRON': 6,
+    'ADJ': 7,
+    'ADV': 8,
+    'Loc_VIP': 9,
+    'Body_VIP': 10,
+    'Obj_VIP': 11,
+    'Act_VIP': 12,
+    'Desc_VIP': 13,
+    'OTHER': 14,
+}
+
+Loc_list = ('left', 'right', 'clockwise', 'counterclockwise', 'anticlockwise', 'forward', 'back', 'backward',
+            'up', 'down', 'straight', 'curve')
+
+Body_list = ('arm', 'chin', 'foot', 'feet', 'face', 'hand', 'mouth', 'leg', 'waist', 'eye', 'knee', 'shoulder', 'thigh')
+
+Obj_List = ('stair', 'dumbbell', 'chair', 'window', 'floor', 'car', 'ball', 'handrail', 'baseball', 'basketball')
+
+Act_list = ('walk', 'run', 'swing', 'pick', 'bring', 'kick', 'put', 'squat', 'throw', 'hop', 'dance', 'jump', 'turn',
+            'stumble', 'dance', 'stop', 'sit', 'lift', 'lower', 'raise', 'wash', 'stand', 'kneel', 'stroll',
+            'rub', 'bend', 'balance', 'flap', 'jog', 'shuffle', 'lean', 'rotate', 'spin', 'spread', 'climb')
+
+Desc_list = ('slowly', 'carefully', 'fast', 'careful', 'slow', 'quickly', 'happy', 'angry', 'sad', 'happily',
+             'angrily', 'sadly')
+
+VIP_dict = {
+    'Loc_VIP': Loc_list,
+    'Body_VIP': Body_list,
+    'Obj_VIP': Obj_List,
+    'Act_VIP': Act_list,
+    'Desc_VIP': Desc_list,
+}
+
+
+class WordVectorizer(object):
+    def __init__(self, meta_root, prefix):
+        vectors = np.load(pjoin(meta_root, '%s_data.npy'%prefix), allow_pickle=True)
+        words = pickle.load(open(pjoin(meta_root, '%s_words.pkl'%prefix), 'rb'))
+        word2idx = pickle.load(open(pjoin(meta_root, '%s_idx.pkl'%prefix), 'rb'))
+        
+# Robust construction of self.word2vec (safe for object-arrays or dicts)
+# Ensure 'vectors' is an indexable ndarray when possible; handle dicts and 0-d objects.
+# This code executes within __init__ where 'vectors', 'word2idx', 'words', and 'self' exist.
+try:
+    # unwrap 0-d object arrays
+    if isinstance(vectors, np.ndarray) and vectors.shape == ():
+        try:
+            vectors = np.asarray(vectors.item())
+        except Exception:
+            pass
+
+    # if vectors is a dict, try to convert id->vec dict to ndarray, otherwise keep as dict(word->vec)
+    if isinstance(vectors, dict):
+        try:
+            numeric_keys = [k for k in vectors.keys() if isinstance(k, (int, np.integer))]
+            if numeric_keys:
+                max_k = max(numeric_keys)
+                vec0 = next(iter(vectors.values()))
+                dim = len(np.asarray(vec0))
+                arr = np.zeros((max_k+1, dim), dtype=np.float32)
+                for k, v in vectors.items():
+                    try:
+                        arr[int(k)] = np.asarray(v, dtype=np.float32)
+                    except Exception:
+                        pass
+                vectors = arr
+            else:
+                # keys are words -> leave as dict(word -> vec)
+                pass
+        except Exception:
+            # fallback: try to convert to array of values
+            try:
+                vectors = np.asarray(list(vectors.values()), dtype=np.float32)
+            except Exception:
+                pass
+
+    # Build word2vec dictionary robustly
+    self.word2vec = {}
+    try:
+        vec_dim = int(np.asarray(vectors).shape[1])
+    except Exception:
+        vec_dim = 300
+
+    for w in words:
+        idx = word2idx.get(w, word2idx.get('<unk>', 1))
+        vec = None
+        try:
+            if isinstance(vectors, np.ndarray):
+                vec = vectors[int(idx)]
+            elif isinstance(vectors, dict):
+                if w in vectors:
+                    vec = np.asarray(vectors[w], dtype=np.float32)
+                elif idx in vectors:
+                    vec = np.asarray(vectors[idx], dtype=np.float32)
+                elif str(idx) in vectors:
+                    vec = np.asarray(vectors[str(idx)], dtype=np.float32)
+                else:
+                    vec = None
+            else:
+                tmp = np.asarray(vectors)
+                vec = tmp[int(idx)]
+        except Exception:
+            vec = None
+
+        if vec is None:
+            vec = np.zeros((vec_dim,), dtype=np.float32)
+        self.word2vec[w] = vec
+except Exception:
+    # Fallback: give zero vectors for all words if something unexpected occurs
+    self.word2vec = {}
+    for w in words:
+        self.word2vec[w] = np.zeros((300,), dtype=np.float32)
+
+
+    def _get_pos_ohot(self, pos):
+        pos_vec = np.zeros(len(POS_enumerator))
+        if pos in POS_enumerator:
+            pos_vec[POS_enumerator[pos]] = 1
+        else:
+            pos_vec[POS_enumerator['OTHER']] = 1
+        return pos_vec
+
+    def __len__(self):
+        return len(self.word2vec)
+
+    def __getitem__(self, item):
+        word, pos = item.split('/')
+        if word in self.word2vec:
+            word_vec = self.word2vec[word]
+            vip_pos = None
+            for key, values in VIP_dict.items():
+                if word in values:
+                    vip_pos = key
+                    break
+            if vip_pos is not None:
+                pos_vec = self._get_pos_ohot(vip_pos)
+            else:
+                pos_vec = self._get_pos_ohot(pos)
+        else:
+            word_vec = self.word2vec['unk']
+            pos_vec = self._get_pos_ohot('OTHER')
+        return word_vec, pos_vec

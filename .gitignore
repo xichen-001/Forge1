@@ -1,0 +1,6 @@
+datasets/
+data/motions/
+output/
+wandb/
+*.npz
+*.pkl

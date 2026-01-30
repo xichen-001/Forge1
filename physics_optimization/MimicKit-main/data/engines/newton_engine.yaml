@@ -1,0 +1,8 @@
+engine_name: "newton"
+    
+control_mode: "pos"
+control_freq: 60
+sim_freq: 240
+env_spacing: 5
+ground_mu: 2.0
+ground_restitution: 0.0
